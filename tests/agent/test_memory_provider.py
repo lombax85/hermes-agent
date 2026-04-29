@@ -457,6 +457,54 @@ class TestUserInstalledProviderDiscovery:
         assert p.name == "myexternal"
         assert p.is_available()
 
+    def test_register_skill_from_user_memory_plugin(self, tmp_path, monkeypatch):
+        """Memory plugins can expose namespaced skills via register(ctx)."""
+        import sys
+
+        from plugins.memory import load_memory_provider
+        from tools.skills_tool import skill_view
+
+        plugin_dir = tmp_path / "plugins" / "skillprovider"
+        skill_dir = plugin_dir / "skills" / "maintenance"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: maintenance\n"
+            "description: Test maintenance skill\n"
+            "---\n\n"
+            "# Maintenance\n\n"
+            "This skill was registered by the memory plugin.\n"
+        )
+        (plugin_dir / "__init__.py").write_text(
+            "from pathlib import Path\n"
+            "from agent.memory_provider import MemoryProvider\n"
+            "class MyProvider(MemoryProvider):\n"
+            "    @property\n"
+            "    def name(self): return 'skillprovider'\n"
+            "    def is_available(self): return True\n"
+            "    def initialize(self, **kw): pass\n"
+            "    def sync_turn(self, *a, **kw): pass\n"
+            "    def get_tool_schemas(self): return []\n"
+            "    def handle_tool_call(self, *a, **kw): return '{}'\n"
+            "def register(ctx):\n"
+            "    ctx.register_memory_provider(MyProvider())\n"
+            "    if hasattr(ctx, 'register_skill'):\n"
+            "        ctx.register_skill('maintenance', Path(__file__).parent / 'skills' / 'maintenance' / 'SKILL.md')\n"
+        )
+        monkeypatch.setattr(
+            "plugins.memory._get_user_plugins_dir",
+            lambda: tmp_path / "plugins",
+        )
+        sys.modules.pop("_hermes_user_memory.skillprovider", None)
+
+        p = load_memory_provider("skillprovider")
+
+        assert p is not None
+        assert p.name == "skillprovider"
+        loaded = json.loads(skill_view("skillprovider:maintenance"))
+        assert loaded["success"] is True
+        assert "registered by the memory plugin" in loaded["content"]
+
     def test_bundled_takes_precedence(self, tmp_path, monkeypatch):
         """Bundled provider wins when user plugin has the same name."""
         from plugins.memory import load_memory_provider, discover_memory_providers

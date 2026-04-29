@@ -499,13 +499,12 @@ class PluginContext:
         if not path.exists():
             raise FileNotFoundError(f"SKILL.md not found at {path}")
 
-        qualified = f"{self.manifest.name}:{name}"
-        self._manager._plugin_skills[qualified] = {
-            "path": path,
-            "plugin": self.manifest.name,
-            "bare_name": name,
-            "description": description,
-        }
+        qualified = self._manager.register_plugin_skill(
+            self.manifest.name,
+            name,
+            path,
+            description,
+        )
         logger.debug(
             "Plugin %s registered skill: %s",
             self.manifest.name, qualified,
@@ -534,6 +533,51 @@ class PluginManager:
     # -----------------------------------------------------------------------
     # Public
     # -----------------------------------------------------------------------
+
+    def register_plugin_skill(
+        self,
+        plugin_name: str,
+        name: str,
+        path: Path,
+        description: str = "",
+    ) -> str:
+        """Register a read-only skill under a plugin namespace.
+
+        This shared helper is used by the general ``PluginContext`` and by
+        category-specific plugin loaders (for example memory providers) so
+        every plugin skill follows the same validation and registry format.
+        """
+        from agent.skill_utils import _NAMESPACE_RE
+
+        plugin_name = str(plugin_name or "").strip()
+        name = str(name or "").strip()
+        path = Path(path)
+
+        if not plugin_name or not _NAMESPACE_RE.match(plugin_name):
+            raise ValueError(
+                f"Invalid plugin namespace '{plugin_name}'. Must match [a-zA-Z0-9_-]+."
+            )
+        if ":" in name:
+            raise ValueError(
+                f"Skill name '{name}' must not contain ':' "
+                f"(the namespace is derived from the plugin name "
+                f"'{plugin_name}' automatically)."
+            )
+        if not name or not _NAMESPACE_RE.match(name):
+            raise ValueError(
+                f"Invalid skill name '{name}'. Must match [a-zA-Z0-9_-]+."
+            )
+        if not path.exists():
+            raise FileNotFoundError(f"SKILL.md not found at {path}")
+
+        qualified = f"{plugin_name}:{name}"
+        self._plugin_skills[qualified] = {
+            "path": path,
+            "plugin": plugin_name,
+            "bare_name": name,
+            "description": description,
+        }
+        return qualified
 
     def discover_and_load(self, force: bool = False) -> None:
         """Scan all plugin sources and load each plugin found.

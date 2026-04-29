@@ -263,7 +263,7 @@ def _load_provider_from_dir(provider_dir: Path) -> Optional["MemoryProvider"]:
 
     # Try register(ctx) pattern first (how our plugins are written)
     if hasattr(mod, "register"):
-        collector = _ProviderCollector()
+        collector = _ProviderCollector(name)
         try:
             mod.register(collector)
             if collector.provider:
@@ -286,13 +286,30 @@ def _load_provider_from_dir(provider_dir: Path) -> Optional["MemoryProvider"]:
 
 
 class _ProviderCollector:
-    """Fake plugin context that captures register_memory_provider calls."""
+    """Fake plugin context that captures memory-provider registrations.
 
-    def __init__(self):
+    Memory providers are activated through this category-specific loader
+    instead of the general PluginManager.  Mirror the subset of PluginContext
+    that memory plugins need so they can also expose opt-in plugin skills.
+    """
+
+    def __init__(self, plugin_name: str):
+        self.plugin_name = plugin_name
         self.provider = None
 
     def register_memory_provider(self, provider):
         self.provider = provider
+
+    def register_skill(self, name: str, path: Path, description: str = "") -> None:
+        """Register a read-only skill as ``<memory_provider>:<name>``."""
+        from hermes_cli.plugins import get_plugin_manager
+
+        get_plugin_manager().register_plugin_skill(
+            self.plugin_name,
+            name,
+            Path(path),
+            description,
+        )
 
     # No-op for other registration methods
     def register_tool(self, *args, **kwargs):
